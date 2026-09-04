@@ -1,7 +1,13 @@
 import AppKit
 import Combine
+import OSLog
 import QuartzCore
 import SwiftUI
+
+private let overlayLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "io.github.madhangokul.devbar",
+    category: "DeploymentHUD"
+)
 
 @MainActor
 final class StatusBarController: NSObject {
@@ -268,8 +274,13 @@ final class StatusBarController: NSObject {
             return
         }
 
-        guard panelState == .closed, let candidate else { return }
+        guard let candidate else { return }
+        guard panelState == .closed else {
+            overlayLogger.debug("Deployment HUD suppressed because the main tray is already visible")
+            return
+        }
         deploymentOverlayModel.item = candidate
+        overlayLogger.info("Showing deployment HUD for phase \(candidate.phase.rawValue, privacy: .public)")
         showDeploymentOverlay()
         if !candidate.phase.isActive {
             scheduleOverlayDismiss(after: candidate.phase == .ready ? 12 : 15)
@@ -280,7 +291,10 @@ final class StatusBarController: NSObject {
         guard let button = statusItem.button,
               let buttonWindow = button.window,
               let screen = buttonWindow.screen ?? NSScreen.main
-        else { return }
+        else {
+            overlayLogger.error("Could not present deployment HUD because the menu bar anchor is unavailable")
+            return
+        }
 
         overlayDismissTask?.cancel()
         let buttonFrame = buttonWindow.convertToScreen(button.frame)

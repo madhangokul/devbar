@@ -1,5 +1,11 @@
 import Foundation
+import OSLog
 import UserNotifications
+
+private let notificationLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "io.github.madhangokul.devbar",
+    category: "Notifications"
+)
 
 struct NotificationPreferences: Sendable, Equatable {
     static let enabledKey = "notificationsEnabled"
@@ -178,12 +184,24 @@ actor NotificationService {
 
         guard preferences.isEnabled else { return transitions }
         if authorizationGranted == nil {
-            authorizationGranted = (try? await delivery.requestAuthorization()) ?? false
+            do {
+                authorizationGranted = try await delivery.requestAuthorization()
+            } catch {
+                authorizationGranted = false
+                notificationLogger.error("Notification authorization failed: \(error.localizedDescription, privacy: .private)")
+            }
         }
         guard authorizationGranted == true else { return transitions }
 
         for transition in transitions where shouldDeliver(transition, preferences: preferences) {
-            try? await delivery.deliver(transition)
+            do {
+                try await delivery.deliver(transition)
+                notificationLogger.info(
+                    "Delivered \(transition.kind.rawValue, privacy: .public) deployment notification"
+                )
+            } catch {
+                notificationLogger.error("Notification delivery failed: \(error.localizedDescription, privacy: .private)")
+            }
         }
         return transitions
     }

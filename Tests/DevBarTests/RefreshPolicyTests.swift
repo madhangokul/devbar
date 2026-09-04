@@ -53,6 +53,28 @@ final class RefreshPolicyTests: XCTestCase {
         await pollingGate.open()
     }
 
+    func testTimerRefreshDoesNotCancelItsOwnNetworkTask() async {
+        let recorder = RefreshRecorder()
+        let sleeper = OneShotPollingSleeper()
+        let coordinator = RefreshCoordinator(
+            autoRefreshEnabled: true,
+            refreshAction: { @MainActor in
+                await recorder.recordCancellation(Task.isCancelled)
+                return RefreshResult(succeeded: true, items: [], retryAfter: nil)
+            },
+            sleepAction: { _ in await sleeper.sleep() },
+            randomAction: { 0.5 }
+        )
+
+        await coordinator.start()
+        await sleeper.fire()
+        while await recorder.callCount < 2 { await Task.yield() }
+        await coordinator.stop()
+
+        let cancellations = await recorder.cancellationStates
+        XCTAssertEqual(cancellations.prefix(2), [false, false])
+    }
+
     private func delay(
         _ policy: RefreshPolicy,
         active: Bool = false,
@@ -72,10 +94,38 @@ final class RefreshPolicyTests: XCTestCase {
 
 private actor RefreshRecorder {
     private(set) var callCount = 0
+    private(set) var cancellationStates: [Bool] = []
 
     func recordCall() -> Int {
         callCount += 1
         return callCount
+    }
+
+    func recordCancellation(_ isCancelled: Bool) {
+        callCount += 1
+        cancellationStates.append(isCancelled)
+    }
+}
+
+private actor OneShotPollingSleeper {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var shouldFire = false
+    private var invocationCount = 0
+
+    func sleep() async {
+        invocationCount += 1
+        if invocationCount > 1 {
+            try? await Task.sleep(nanoseconds: UInt64.max)
+            return
+        }
+        if shouldFire { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func fire() {
+        shouldFire = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 

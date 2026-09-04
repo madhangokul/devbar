@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let providerLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "io.github.madhangokul.devbar",
+    category: "ProviderSync"
+)
 
 @MainActor
 final class ToolbarStore: ObservableObject {
@@ -112,6 +118,9 @@ final class ToolbarStore: ObservableObject {
                 switch result {
                 case .success(let providerId, let fetched): fetchedByProvider[providerId] = fetched
                 case .failure(let providerId, let message, let providerRetryAfter):
+                    providerLogger.error(
+                        "Provider refresh failed for \(providerId, privacy: .public): \(message, privacy: .private)"
+                    )
                     errors[providerId] = message
                     if let providerRetryAfter {
                         retryAfter = max(retryAfter ?? 0, providerRetryAfter)

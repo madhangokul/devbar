@@ -168,7 +168,12 @@ actor RefreshCoordinator {
 
     func requestRefresh(_ trigger: RefreshTrigger) async {
         guard isOnline, isRunning, autoRefreshEnabled || trigger == .manual else { return }
-        pollingTask?.cancel()
+        if case .timer = trigger {
+            // The timer invokes this method from pollingTask itself. Cancelling it here
+            // also cancels the URLSession request started below.
+        } else {
+            pollingTask?.cancel()
+        }
         pollingTask = nil
 
         if refreshInProgress {
