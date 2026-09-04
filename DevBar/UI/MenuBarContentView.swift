@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+private struct OpenDevBarSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    var openDevBarSettings: () -> Void {
+        get { self[OpenDevBarSettingsKey.self] }
+        set { self[OpenDevBarSettingsKey.self] = newValue }
+    }
+}
+
 enum DevBarSection: String, CaseIterable, Identifiable {
     case overview
     case projects
@@ -245,6 +256,7 @@ private struct DevBarTabButtonStyle: ButtonStyle {
 }
 
 struct DevBarSettingsLink<Label: View>: View {
+    @Environment(\.openDevBarSettings) private var openSettings
     private let label: () -> Label
 
     init(@ViewBuilder label: @escaping () -> Label) {
@@ -252,17 +264,6 @@ struct DevBarSettingsLink<Label: View>: View {
     }
 
     var body: some View {
-        Group {
-            if #available(macOS 14.0, *) {
-                SettingsLink { label() }
-            } else {
-                Button(action: openLegacySettings) { label() }
-            }
-        }
-    }
-
-    private func openLegacySettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        Button(action: openSettings) { label() }
     }
 }
