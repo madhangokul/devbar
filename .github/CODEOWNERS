@@ -1,0 +1,6 @@
+# Release and security-sensitive surfaces
+/.github/ @madhangokul
+/script/ @madhangokul
+/support/ @madhangokul
+/DevBar/Core/CredentialStore.swift @madhangokul
+/SECURITY.md @madhangokul

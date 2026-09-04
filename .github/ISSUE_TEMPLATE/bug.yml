@@ -1,0 +1,34 @@
+name: Bug report
+description: Report reproducible incorrect behavior in DevBar.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include access tokens, webhook secrets, certificates, or private deployment logs.
+  - type: input
+    id: version
+    attributes:
+      label: DevBar version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac architecture
+      placeholder: macOS 15.6, Apple Silicon
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include expected behavior and safe reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Non-sensitive diagnostics
+      description: Remove tokens, team IDs, private URLs, email addresses, and source details.

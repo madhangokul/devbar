@@ -1,0 +1,23 @@
+.build/
+dist/
+.DS_Store
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.cer
+*.key
+*.provisionprofile
+*.mobileprovision
+notarytool-profile*
+
+# Local diagnostics
+*.log
+*.trace
+*.memgraph
