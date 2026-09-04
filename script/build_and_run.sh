@@ -11,8 +11,11 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+ENTITLEMENTS="$ROOT_DIR/support/DevBar.entitlements"
+ICON_SOURCE="$ROOT_DIR/support/DevBar.icns"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -21,9 +24,15 @@ swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+
+ICON_PLIST_ENTRY=""
+if [[ -f "$ICON_SOURCE" ]]; then
+  cp "$ICON_SOURCE" "$APP_RESOURCES/DevBar.icns"
+  ICON_PLIST_ENTRY=$'  <key>CFBundleIconFile</key>\n  <string>DevBar</string>'
+fi
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +47,11 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0-dev</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+$ICON_PLIST_ENTRY
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
@@ -47,6 +61,10 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+plutil -lint "$INFO_PLIST" "$ENTITLEMENTS" >/dev/null
+codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
