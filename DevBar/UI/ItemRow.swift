@@ -4,6 +4,7 @@ import SwiftUI
 struct ItemRow: View {
     let item: ToolbarItem
     var compact = false
+    var buildDuration: TimeInterval? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
@@ -43,6 +44,12 @@ struct ItemRow: View {
                                 .foregroundStyle(DevBarTheme.secondaryText)
                                 .lineLimit(1)
                         }
+
+                        if item.phase.isActive || displayBuildDuration != nil {
+                            Text("·")
+                                .foregroundStyle(DevBarTheme.tertiaryText)
+                            BuildTimeLabel(item: item, completedDuration: displayBuildDuration)
+                        }
                     }
                 }
 
@@ -67,12 +74,42 @@ struct ItemRow: View {
 
     private var accessibilityLabel: String {
         let details = [item.groupName, item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
-        return "\(item.title), \(item.status.label), \(details), \(item.timestamp.formatted(.relative(presentation: .named)))"
+        let timing = displayBuildDuration.map { ", built in \(DevBarDurationFormatter.string(from: $0))" }
+            ?? item.currentBuildElapsed().map { ", running for \(DevBarDurationFormatter.string(from: $0))" }
+            ?? ""
+        return "\(item.title), \(item.status.label), \(details)\(timing), \(item.timestamp.formatted(.relative(presentation: .named)))"
+    }
+
+    private var displayBuildDuration: TimeInterval? {
+        buildDuration ?? item.completedBuildDuration
     }
 
     private func openItem() {
         guard let url = item.openURL else { return }
         NSWorkspace.shared.open(url)
+    }
+}
+
+private struct BuildTimeLabel: View {
+    let item: ToolbarItem
+    let completedDuration: TimeInterval?
+
+    var body: some View {
+        if let completedDuration {
+            Text("Built in \(DevBarDurationFormatter.string(from: completedDuration))")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(DevBarTheme.secondaryText)
+                .lineLimit(1)
+        } else if item.phase.isActive {
+            TimelineView(.periodic(from: .now, by: 5)) { context in
+                Text("Running \(DevBarDurationFormatter.string(from: item.currentBuildElapsed(at: context.date) ?? 0))")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(DevBarTheme.active)
+                    .lineLimit(1)
+            }
+        }
     }
 }
 

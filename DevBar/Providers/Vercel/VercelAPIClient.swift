@@ -17,7 +17,7 @@ struct VercelAPIClient: Sendable {
             queryItems: [URLQueryItem(name: "limit", value: "40")]
         )
 
-        return deploymentsResponse.deployments.map { deployment in
+        let items = deploymentsResponse.deployments.map { deployment in
             let branch = deployment.meta?.githubCommitRef
             let environment = deployment.target?.capitalized ?? "Preview"
             let subtitle = [environment, branch].compactMap { $0 }.joined(separator: " · ")
@@ -31,11 +31,14 @@ struct VercelAPIClient: Sendable {
                 subtitle: subtitle,
                 status: status(for: phase),
                 phase: phase,
-                timestamp: Date(timeIntervalSince1970: deployment.created / 1_000),
-                openURL: deployment.inspectorURL.flatMap(URL.init(string:))
-                    ?? deployment.url.flatMap { URL(string: "https://\($0)") }
+                timestamp: date(fromMilliseconds: deployment.created),
+                openURL: deployment.inspectorURL.flatMap(URL.init(string:)),
+                siteURL: deployedSiteURL(from: deployment.url),
+                startedAt: deployment.buildingAt.map(date(fromMilliseconds:)),
+                completedAt: deployment.ready.map(date(fromMilliseconds:))
             )
         }
+        return BuildTimingEstimator.addingEstimates(to: items)
     }
 
     private func request<Response: Decodable>(
@@ -80,6 +83,16 @@ struct VercelAPIClient: Sendable {
         if phase.isActive { return .warning }
         if phase.isFailure { return .error }
         return .neutral
+    }
+
+    private func date(fromMilliseconds value: TimeInterval) -> Date {
+        Date(timeIntervalSince1970: value / 1_000)
+    }
+
+    private func deployedSiteURL(from value: String?) -> URL? {
+        guard let value, !value.isEmpty else { return nil }
+        if let url = URL(string: value), url.scheme != nil { return url }
+        return URL(string: "https://\(value)")
     }
 
     private func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {

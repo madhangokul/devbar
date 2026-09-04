@@ -10,6 +10,8 @@ struct VercelDeployment: Decodable {
     let url: String?
     let inspectorURL: String?
     let created: TimeInterval
+    let buildingAt: TimeInterval?
+    let ready: TimeInterval?
     let readyState: String?
     let state: String?
     let target: String?
@@ -24,6 +26,8 @@ struct VercelDeployment: Decodable {
         case inspectorURL = "inspectorUrl"
         case created
         case createdAt
+        case buildingAt
+        case ready
         case readyState
         case state
         case target
@@ -36,6 +40,8 @@ struct VercelDeployment: Decodable {
         name = try container.decode(String.self, forKey: .name)
         url = try container.decodeIfPresent(String.self, forKey: .url)
         inspectorURL = try container.decodeIfPresent(String.self, forKey: .inspectorURL)
+        buildingAt = try container.decodeIfPresent(TimeInterval.self, forKey: .buildingAt)
+        ready = try container.decodeIfPresent(TimeInterval.self, forKey: .ready)
         readyState = try container.decodeIfPresent(String.self, forKey: .readyState)
         state = try container.decodeIfPresent(String.self, forKey: .state)
         target = try container.decodeIfPresent(String.self, forKey: .target)

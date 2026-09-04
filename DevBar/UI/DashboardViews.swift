@@ -4,6 +4,8 @@ import SwiftUI
 struct OverviewView: View {
     @ObservedObject var store: ToolbarStore
 
+    @AppStorage("dismissedFailureDeploymentIDs") private var dismissedFailureIDs = ""
+
     private let columns = [
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8)
@@ -15,19 +17,24 @@ struct OverviewView: View {
                 HealthSummaryCard(
                     status: store.aggregateStatus,
                     projectCount: projectNames.count,
-                    issueCount: store.issueCount
+                    activeCount: activeItems.count,
+                    failureCount: failedItems.count
                 )
+
+                if !visibleFailedItems.isEmpty {
+                    AttentionCard(items: visibleFailedItems, onDismiss: dismissFailure)
+                }
 
                 LazyVGrid(columns: columns, spacing: 8) {
                     MetricCard(
-                        title: "Live",
-                        value: "\(store.items.count)",
-                        detail: "recent deployments",
+                        title: "Recent",
+                        value: "\(store.visibleItems.count)",
+                        detail: "in current project scope",
                         icon: "waveform.path.ecg",
                         color: DevBarTheme.accent
                     )
                     MetricCard(
-                        title: "Active",
+                        title: "In progress",
                         value: "\(activeItems.count)",
                         detail: "building or queued",
                         icon: "clock.fill",
@@ -41,11 +48,11 @@ struct OverviewView: View {
                         color: DevBarTheme.accent
                     )
                     MetricCard(
-                        title: "Attention",
-                        value: "\(store.issueCount)",
-                        detail: "active or failed",
+                        title: "Failed",
+                        value: "\(failedItems.count)",
+                        detail: "failed, blocked, canceled",
                         icon: "exclamationmark.triangle.fill",
-                        color: store.issueCount > 0 ? DevBarTheme.failed : DevBarTheme.healthy
+                        color: failedItems.isEmpty ? DevBarTheme.healthy : DevBarTheme.failed
                     )
                 }
 
@@ -73,6 +80,8 @@ struct OverviewView: View {
             .padding(12)
         }
         .accessibilityLabel("Deployment overview")
+        .onAppear(perform: synchronizeDismissals)
+        .onChange(of: store.items) { _ in synchronizeDismissals() }
     }
 
     private var projectNames: Set<String> {
@@ -83,8 +92,37 @@ struct OverviewView: View {
         store.visibleItems.filter { $0.phase.isActive }
     }
 
+    private var failedItems: [ToolbarItem] {
+        store.visibleItems.filter { $0.phase.isFailure }
+    }
+
+    private var visibleFailedItems: [ToolbarItem] {
+        let dismissed = Set(dismissedFailureIDs.split(separator: "\n").map(String.init))
+        return failedItems.filter { !dismissed.contains($0.id) }
+    }
+
     private var errorProviders: [any ToolbarProvider] {
         store.enabledProviders.filter { store.providerErrors[$0.id] != nil }
+    }
+
+    private func dismissFailure(_ id: String) {
+        var ids = dismissedFailureIDs.split(separator: "\n").map(String.init)
+        ids.removeAll { $0 == id }
+        ids.append(id)
+        dismissedFailureIDs = ids.suffix(50).joined(separator: "\n")
+    }
+
+    private func synchronizeDismissals() {
+        let currentFailureIDs = Set(store.items.filter { $0.phase.isFailure }.map(\.id))
+        let retained = dismissedFailureIDs
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { currentFailureIDs.contains($0) }
+            .suffix(50)
+        let normalized = retained.joined(separator: "\n")
+        if normalized != dismissedFailureIDs {
+            dismissedFailureIDs = normalized
+        }
     }
 }
 
@@ -196,7 +234,8 @@ struct QueueView: View {
 private struct HealthSummaryCard: View {
     let status: ItemStatus
     let projectCount: Int
-    let issueCount: Int
+    let activeCount: Int
+    let failureCount: Int
 
     var body: some View {
         HStack(spacing: 12) {
@@ -220,7 +259,7 @@ private struct HealthSummaryCard: View {
 
             VStack(alignment: .trailing, spacing: 3) {
                 Text("\(projectCount) project\(projectCount == 1 ? "" : "s")")
-                Text("\(issueCount) need attention")
+                Text("\(activeCount) active · \(failureCount) failed")
             }
             .font(.caption2)
             .monospacedDigit()
@@ -229,14 +268,17 @@ private struct HealthSummaryCard: View {
         .padding(12)
         .devBarCard(highlighted: true)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Deployment health: \(statusTitle). \(projectCount) projects. \(issueCount) items need attention.")
+        .accessibilityLabel("Deployment health: \(statusTitle). \(projectCount) projects. \(activeCount) active and \(failureCount) failed deployments.")
     }
 
     private var statusTitle: String {
         switch status {
         case .good: "Everything is healthy"
         case .warning: "Deployments in progress"
-        case .error: "Action may be needed"
+        case .error:
+            failureCount > 0
+                ? "\(failureCount) deployment\(failureCount == 1 ? "" : "s") failed"
+                : "Provider connection issue"
         case .neutral: "Waiting for data"
         }
     }

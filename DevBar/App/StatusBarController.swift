@@ -8,12 +8,18 @@ final class StatusBarController: NSObject {
     private let runtime: DevBarRuntime
     private let statusItem: NSStatusItem
     private let panel: DevBarPanel
+    private let deploymentOverlayPanel: DevBarPanel
+    private let deploymentOverlayModel = DeploymentOverlayModel()
     private var cancellables = Set<AnyCancellable>()
     private var outsideClickMonitor: Any?
     private var localClickMonitor: Any?
     private var wakeObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private var isPanelVisible = false
+    private var hasAuthoritativeSnapshot = false
+    private var previousItemsByID: [String: ToolbarItem] = [:]
+    private var dismissedOverlayIDs: [String] = []
+    private var overlayDismissTask: Task<Void, Never>?
 
     init(runtime: DevBarRuntime, openSettings: @escaping () -> Void) {
         self.runtime = runtime
@@ -24,15 +30,23 @@ final class StatusBarController: NSObject {
             backing: .buffered,
             defer: false
         )
+        deploymentOverlayPanel = DevBarPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 174),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
 
         super.init()
         configureStatusItem()
         configurePanel(openSettings: openSettings)
+        configureDeploymentOverlay()
         observeRuntime()
     }
 
     func stop() {
         removeClickMonitors()
+        overlayDismissTask?.cancel()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -43,6 +57,7 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func togglePanel() {
+        hideDeploymentOverlay(animated: false)
         isPanelVisible ? hidePanel() : showPanel()
     }
 
@@ -85,11 +100,40 @@ final class StatusBarController: NSObject {
         panel.contentViewController = NSHostingController(rootView: content)
     }
 
+    private func configureDeploymentOverlay() {
+        deploymentOverlayPanel.isOpaque = false
+        deploymentOverlayPanel.backgroundColor = .clear
+        deploymentOverlayPanel.hasShadow = false
+        deploymentOverlayPanel.level = .popUpMenu
+        deploymentOverlayPanel.collectionBehavior = [.transient, .moveToActiveSpace, .fullScreenAuxiliary]
+        deploymentOverlayPanel.isMovable = false
+        deploymentOverlayPanel.isReleasedWhenClosed = false
+        deploymentOverlayPanel.animationBehavior = .none
+        deploymentOverlayPanel.contentViewController = NSHostingController(
+            rootView: DeploymentOverlayHost(
+                model: deploymentOverlayModel,
+                onDismiss: { [weak self] in self?.dismissCurrentDeploymentOverlay() },
+                onOpenSite: { [weak self] url in
+                    NSWorkspace.shared.open(url)
+                    self?.hideDeploymentOverlay()
+                }
+            )
+        )
+    }
+
     private func observeRuntime() {
         runtime.store.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.updateStatusItem() }
+            }
+            .store(in: &cancellables)
+
+        runtime.store.$lastUpdated
+            .compactMap { $0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.reconcileDeploymentOverlay()
             }
             .store(in: &cancellables)
 
@@ -166,6 +210,121 @@ final class StatusBarController: NSObject {
         }
     }
 
+    private func reconcileDeploymentOverlay() {
+        let currentItems = runtime.store.items
+        let currentByID = Dictionary(uniqueKeysWithValues: currentItems.map { ($0.id, $0) })
+
+        guard hasAuthoritativeSnapshot else {
+            hasAuthoritativeSnapshot = true
+            previousItemsByID = currentByID
+            return
+        }
+
+        defer { previousItemsByID = currentByID }
+
+        if let displayedID = deploymentOverlayModel.item?.id,
+           let updatedItem = currentByID[displayedID] {
+            let oldPhase = deploymentOverlayModel.item?.phase
+            deploymentOverlayModel.item = updatedItem
+            if oldPhase?.isActive == true, !updatedItem.phase.isActive {
+                scheduleOverlayDismiss(after: updatedItem.phase == .ready ? 6 : 10)
+            }
+            return
+        }
+
+        guard !isPanelVisible else { return }
+        let candidate = currentItems
+            .filter { item in
+                guard !dismissedOverlayIDs.contains(item.id) else { return false }
+                guard item.phase.isActive || item.phase == .ready || item.phase.isFailure else { return false }
+                guard let previous = previousItemsByID[item.id] else { return true }
+                return previous.phase != item.phase && (item.phase.isActive || previous.phase.isActive)
+            }
+            .max { $0.triggeredAt < $1.triggeredAt }
+
+        guard let candidate else { return }
+        deploymentOverlayModel.item = candidate
+        showDeploymentOverlay()
+        if !candidate.phase.isActive {
+            scheduleOverlayDismiss(after: candidate.phase == .ready ? 6 : 10)
+        }
+    }
+
+    private func showDeploymentOverlay() {
+        guard let button = statusItem.button,
+              let buttonWindow = button.window,
+              let screen = buttonWindow.screen ?? NSScreen.main
+        else { return }
+
+        overlayDismissTask?.cancel()
+        let buttonFrame = buttonWindow.convertToScreen(button.frame)
+        let size = deploymentOverlayPanel.frame.size
+        let inset: CGFloat = 8
+        let x = min(
+            max(screen.visibleFrame.minX + inset, buttonFrame.midX - size.width / 2),
+            screen.visibleFrame.maxX - size.width - inset
+        )
+        let finalFrame = NSRect(
+            origin: NSPoint(x: x, y: buttonFrame.minY - size.height - 7),
+            size: size
+        )
+
+        deploymentOverlayPanel.alphaValue = 0
+        deploymentOverlayPanel.setFrame(finalFrame.offsetBy(dx: 0, dy: 6), display: false)
+        deploymentOverlayPanel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.24
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            deploymentOverlayPanel.animator().alphaValue = 1
+            deploymentOverlayPanel.animator().setFrame(finalFrame, display: true)
+        }
+    }
+
+    private func dismissCurrentDeploymentOverlay() {
+        if let id = deploymentOverlayModel.item?.id {
+            dismissedOverlayIDs.removeAll { $0 == id }
+            dismissedOverlayIDs.append(id)
+            dismissedOverlayIDs = Array(dismissedOverlayIDs.suffix(50))
+        }
+        hideDeploymentOverlay()
+    }
+
+    private func scheduleOverlayDismiss(after delay: TimeInterval) {
+        overlayDismissTask?.cancel()
+        overlayDismissTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.hideDeploymentOverlay() }
+        }
+    }
+
+    private func hideDeploymentOverlay(animated: Bool = true) {
+        overlayDismissTask?.cancel()
+        guard deploymentOverlayPanel.isVisible else { return }
+        guard animated else {
+            deploymentOverlayPanel.orderOut(nil)
+            deploymentOverlayPanel.alphaValue = 1
+            deploymentOverlayModel.item = nil
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            deploymentOverlayPanel.animator().alphaValue = 0
+            deploymentOverlayPanel.animator().setFrame(
+                deploymentOverlayPanel.frame.offsetBy(dx: 0, dy: 4),
+                display: true
+            )
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                self?.deploymentOverlayPanel.orderOut(nil)
+                self?.deploymentOverlayPanel.alphaValue = 1
+                self?.deploymentOverlayModel.item = nil
+            }
+        }
+    }
+
     private func hidePanel(animated: Bool = true) {
         guard isPanelVisible else { return }
         isPanelVisible = false
@@ -217,6 +376,47 @@ final class StatusBarController: NSObject {
             NSEvent.removeMonitor(localClickMonitor)
             self.localClickMonitor = nil
         }
+    }
+}
+
+@MainActor
+private final class DeploymentOverlayModel: ObservableObject {
+    @Published var item: ToolbarItem?
+}
+
+private struct DeploymentOverlayHost: View {
+    @ObservedObject var model: DeploymentOverlayModel
+    let onDismiss: () -> Void
+    let onOpenSite: (URL) -> Void
+
+    var body: some View {
+        if let item = model.item {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let elapsed = elapsedDuration(for: item, at: context.date)
+                let estimate = item.estimatedBuildDuration ?? 0
+                DeploymentProgressOverlay(
+                    item: item,
+                    estimatedProgress: progress(for: item, elapsed: elapsed, estimate: estimate),
+                    elapsedDuration: elapsed,
+                    estimatedDuration: estimate,
+                    siteURL: item.siteURL,
+                    onDismiss: onDismiss,
+                    onOpenSite: item.siteURL.map { url in { onOpenSite(url) } }
+                )
+            }
+        }
+    }
+
+    private func elapsedDuration(for item: ToolbarItem, at now: Date) -> TimeInterval {
+        item.completedBuildDuration ?? item.currentBuildElapsed(at: now) ?? item.triggerAge(at: now)
+    }
+
+    private func progress(for item: ToolbarItem, elapsed: TimeInterval, estimate: TimeInterval) -> Double {
+        if item.phase == .ready { return 1 }
+        if item.phase.isFailure { return min(1, max(0.08, estimate > 0 ? elapsed / estimate : 0.5)) }
+        if estimate > 0 { return min(0.98, max(0.04, elapsed / estimate)) }
+        if item.phase == .queued { return 0.04 }
+        return min(0.85, 0.12 + (elapsed / 180) * 0.73)
     }
 }
 

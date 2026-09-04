@@ -27,9 +27,8 @@ DevBar gives a solo developer a quiet, glanceable view of Vercel projects, live 
 - REST reconciliation is always the source of truth.
 - Refresh on launch, popover open, wake, restored connectivity, and manual action.
 - Adaptive polling:
-  - 15–20 seconds while a deployment is active.
-  - 60 seconds while the popover is open and everything is settled.
-  - 3–5 minutes while closed and settled.
+  - 15 seconds while a deployment is active.
+  - 30 seconds while settled in direct mode, so a new deployment can surface promptly.
   - Exponential backoff with jitter for network failures and `Retry-After` for rate limits.
 - Last good snapshot cached in Application Support, capped at 200 items with a seven-day TTL.
 - Per-provider errors never remove another provider's data.

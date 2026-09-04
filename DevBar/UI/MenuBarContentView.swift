@@ -220,10 +220,16 @@ struct MenuBarContentView: View {
 
     private var statusSummary: String {
         switch store.aggregateStatus {
-        case .good: "All tracked deployments are healthy"
-        case .warning: "\(activeCount) deployment\(activeCount == 1 ? "" : "s") active"
-        case .error: "\(store.issueCount) item\(store.issueCount == 1 ? "" : "s") need attention"
-        case .neutral: "Connect Vercel to begin"
+        case .good: return "All tracked deployments are healthy"
+        case .warning: return "\(activeCount) deployment\(activeCount == 1 ? "" : "s") active"
+        case .error:
+            let failures = store.items.filter { $0.phase.isFailure }.count
+            if failures > 0 {
+                return "\(failures) deployment\(failures == 1 ? "" : "s") failed"
+            } else {
+                return "Provider connection needs attention"
+            }
+        case .neutral: return "Connect Vercel to begin"
         }
     }
 

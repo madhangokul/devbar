@@ -45,9 +45,8 @@ An optional provider-neutral outbound stream. It marks a provider dirty; it neve
 
 | State | Interval |
 | --- | --- |
-| Active deployment | 15–20 seconds |
-| Popover open, settled | 60 seconds |
-| Popover closed, settled | 3–5 minutes |
+| Active deployment | 15 seconds |
+| Settled, direct mode | 30 seconds |
 | Webhook-assisted | On hint plus 10-minute reconciliation |
 | Offline or rate-limited | Bounded exponential backoff with jitter |
 

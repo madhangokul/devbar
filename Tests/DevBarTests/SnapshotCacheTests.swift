@@ -44,4 +44,40 @@ final class SnapshotCacheTests: XCTestCase {
 
         XCTAssertNil(try cache.load(now: savedAt.addingTimeInterval(SnapshotCache.timeToLive + 1)))
     }
+
+    func testLoadsLegacySnapshotWithoutTimingAndSeparateURLs() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = SnapshotCache(fileURL: directory.appendingPathComponent("snapshot.json"))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacyJSON = """
+        {
+          "schemaVersion": 1,
+          "savedAt": 2000000,
+          "items": [{
+            "id": "legacy",
+            "providerId": "vercel",
+            "groupName": "DevBar",
+            "title": "DevBar",
+            "subtitle": "Production",
+            "status": 1,
+            "phase": "ready",
+            "timestamp": 1999000,
+            "openURL": "https://vercel.com/acme/devbar/legacy"
+          }]
+        }
+        """
+        try Data(legacyJSON.utf8).write(to: cache.fileURL)
+
+        let loaded = try XCTUnwrap(cache.load(now: Date(timeIntervalSince1970: 2_000)))
+        let item = try XCTUnwrap(loaded.first)
+
+        XCTAssertEqual(item.inspectorURL?.absoluteString, "https://vercel.com/acme/devbar/legacy")
+        XCTAssertEqual(item.openURL, item.inspectorURL)
+        XCTAssertNil(item.siteURL)
+        XCTAssertNil(item.startedAt)
+        XCTAssertNil(item.completedAt)
+        XCTAssertNil(item.estimatedBuildDuration)
+    }
 }

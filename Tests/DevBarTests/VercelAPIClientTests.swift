@@ -24,6 +24,7 @@ final class VercelAPIClientTests: XCTestCase {
                   "url":"devbar-git-main.vercel.app",
                   "inspectorUrl":"https://vercel.com/acme/devbar/dpl_1",
                   "created":1788500000000,
+                  "buildingAt":1788500010000,
                   "readyState":"BUILDING",
                   "target":"production",
                   "meta":{"githubCommitRef":"main","numericValue":42}
@@ -40,7 +41,19 @@ final class VercelAPIClientTests: XCTestCase {
         XCTAssertEqual(items[0].phase, .building)
         XCTAssertEqual(items[0].status, .warning)
         XCTAssertEqual(items[0].subtitle, "Production · main")
+        XCTAssertEqual(items[0].inspectorURL?.absoluteString, "https://vercel.com/acme/devbar/dpl_1")
+        XCTAssertEqual(items[0].siteURL?.absoluteString, "https://devbar-git-main.vercel.app")
         XCTAssertEqual(items[0].openURL?.absoluteString, "https://vercel.com/acme/devbar/dpl_1")
+        XCTAssertEqual(items[0].startedAt, Date(timeIntervalSince1970: 1_788_500_010))
+        XCTAssertNil(items[0].completedAt)
+        XCTAssertEqual(
+            items[0].currentBuildElapsed(at: Date(timeIntervalSince1970: 1_788_500_030)),
+            20
+        )
+        XCTAssertEqual(
+            items[0].triggerAge(at: Date(timeIntervalSince1970: 1_788_500_030)),
+            30
+        )
     }
 
     func testMapsEverySupportedLifecycleState() async throws {
@@ -78,6 +91,32 @@ final class VercelAPIClientTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testEstimatesActiveBuildFromPreviousThreeCompletedProjectBuilds() async throws {
+        MockURLProtocol.handler = { request in
+            Self.response(
+                for: request,
+                body: """
+                {"deployments":[
+                  {"uid":"active","name":"devbar","created":500000,"buildingAt":510000,"readyState":"BUILDING"},
+                  {"uid":"other","name":"other","created":450000,"buildingAt":460000,"ready":560000,"readyState":"READY"},
+                  {"uid":"previous-1","name":"devbar","created":400000,"buildingAt":410000,"ready":450000,"readyState":"READY"},
+                  {"uid":"previous-2","name":"devbar","created":300000,"buildingAt":305000,"ready":335000,"readyState":"READY"},
+                  {"uid":"previous-3","name":"devbar","created":200000,"buildingAt":203000,"ready":223000,"readyState":"READY"},
+                  {"uid":"previous-4","name":"devbar","created":100000,"buildingAt":101000,"ready":111000,"readyState":"READY"}
+                ]}
+                """
+            )
+        }
+
+        let items = try await VercelAPIClient(token: "token", teamId: nil, session: makeSession()).fetchItems()
+        let active = try XCTUnwrap(items.first { $0.id == "active" })
+        let completed = try XCTUnwrap(items.first { $0.id == "previous-1" })
+
+        XCTAssertEqual(active.estimatedBuildDuration, 30)
+        XCTAssertEqual(completed.completedBuildDuration, 40)
+        XCTAssertNil(completed.currentBuildElapsed(at: Date(timeIntervalSince1970: 600)))
     }
 
     private func makeSession() -> URLSession {
