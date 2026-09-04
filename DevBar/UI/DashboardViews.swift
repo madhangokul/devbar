@@ -50,7 +50,7 @@ struct OverviewView: View {
                     MetricCard(
                         title: "Failed",
                         value: "\(failedItems.count)",
-                        detail: "failed, blocked, canceled",
+                        detail: "in the past 24 hours",
                         icon: "exclamationmark.triangle.fill",
                         color: failedItems.isEmpty ? DevBarTheme.healthy : DevBarTheme.failed
                     )
@@ -97,8 +97,11 @@ struct OverviewView: View {
     }
 
     private var failedItems: [ToolbarItem] {
-        store.visibleItems.filter { item in
-            item.phase.isFailure && !dismissedIDSet.contains(item.id)
+        let cutoff = Date().addingTimeInterval(-DeploymentAttention.monitoringWindow)
+        return store.visibleItems.filter { item in
+            item.phase.isFailure &&
+                item.triggeredAt >= cutoff &&
+                !dismissedIDSet.contains(item.id)
         }
     }
 

@@ -22,19 +22,55 @@ final class DeploymentAttentionTests: XCTestCase {
 
     func testUndismissedFailureRemainsVisible() {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        let items = [item(id: "failed-1", phase: .blocked)]
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let items = [item(id: "failed-1", phase: .blocked, timestamp: now)]
 
         XCTAssertEqual(
-            DeploymentAttention.attentionCount(items: items, providerErrors: [:], defaults: defaults),
+            DeploymentAttention.attentionCount(
+                items: items,
+                providerErrors: [:],
+                defaults: defaults,
+                now: now
+            ),
             1
         )
         XCTAssertEqual(
-            DeploymentAttention.displayStatus(items: items, providerErrors: [:], defaults: defaults),
+            DeploymentAttention.displayStatus(
+                items: items,
+                providerErrors: [:],
+                defaults: defaults,
+                now: now
+            ),
             .error
         )
     }
 
-    private func item(id: String, phase: ItemPhase) -> ToolbarItem {
+    func testFailureOlderThanTwentyFourHoursIsIgnored() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let items = [
+            item(
+                id: "old-failure",
+                phase: .error,
+                timestamp: now.addingTimeInterval(-DeploymentAttention.monitoringWindow - 1)
+            )
+        ]
+
+        XCTAssertTrue(
+            DeploymentAttention.visibleFailures(in: items, defaults: defaults, now: now).isEmpty
+        )
+        XCTAssertEqual(
+            DeploymentAttention.displayStatus(
+                items: items,
+                providerErrors: [:],
+                defaults: defaults,
+                now: now
+            ),
+            .good
+        )
+    }
+
+    private func item(id: String, phase: ItemPhase, timestamp: Date = Date()) -> ToolbarItem {
         ToolbarItem(
             id: id,
             providerId: "vercel",
@@ -43,7 +79,7 @@ final class DeploymentAttentionTests: XCTestCase {
             subtitle: "Production",
             status: phase.isFailure ? .error : .good,
             phase: phase,
-            timestamp: Date(),
+            timestamp: timestamp,
             openURL: nil
         )
     }

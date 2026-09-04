@@ -51,14 +51,20 @@ struct NotificationTransitionTracker: Sendable {
     private var announcedIdOrder: [String] = []
     private let announcementLimit: Int
 
-    init(announcementLimit: Int = 400) {
+    init(initialItems: [ToolbarItem] = [], announcementLimit: Int = 400) {
         self.announcementLimit = max(1, announcementLimit)
+        if !initialItems.isEmpty {
+            hasHydrated = true
+            phaseByItemId = Dictionary(
+                uniqueKeysWithValues: initialItems.map { (Self.notificationItemKey(for: $0), $0.phase) }
+            )
+        }
     }
 
     mutating func consume(_ items: [ToolbarItem], now: Date = Date()) -> [DeploymentNotification] {
         var currentPhases: [String: ItemPhase] = [:]
         for item in items {
-            currentPhases[notificationItemKey(for: item)] = item.phase
+            currentPhases[Self.notificationItemKey(for: item)] = item.phase
         }
 
         guard hasHydrated else {
@@ -69,7 +75,7 @@ struct NotificationTransitionTracker: Sendable {
 
         var notifications: [DeploymentNotification] = []
         for item in items {
-            let itemKey = notificationItemKey(for: item)
+            let itemKey = Self.notificationItemKey(for: item)
             let oldPhase = phaseByItemId[itemKey]
             guard oldPhase != item.phase else { continue }
 
@@ -101,7 +107,7 @@ struct NotificationTransitionTracker: Sendable {
         return notifications
     }
 
-    private func notificationItemKey(for item: ToolbarItem) -> String {
+    private static func notificationItemKey(for item: ToolbarItem) -> String {
         "\(item.providerId):\(item.id)"
     }
 

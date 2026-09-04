@@ -24,8 +24,7 @@ final class StatusBarController: NSObject {
     private var defaultsObserver: NSObjectProtocol?
     private var panelState: PanelState = .closed
     private var panelTransitionID = 0
-    private var hasAuthoritativeSnapshot = false
-    private var previousItemsByID: [String: ToolbarItem] = [:]
+    private var deploymentOverlayTracker: DeploymentOverlayTracker
     private var dismissedOverlayIDs: [String] = []
     private var overlayDismissTask: Task<Void, Never>?
     private var observedAutoRefreshEnabled = UserDefaults.standard.object(
@@ -47,6 +46,7 @@ final class StatusBarController: NSObject {
             backing: .buffered,
             defer: false
         )
+        deploymentOverlayTracker = DeploymentOverlayTracker(initialItems: runtime.store.items)
 
         super.init()
         configureStatusItem()
@@ -253,40 +253,26 @@ final class StatusBarController: NSObject {
     private func reconcileDeploymentOverlay() {
         let currentItems = runtime.store.items
         let currentByID = Dictionary(uniqueKeysWithValues: currentItems.map { ($0.id, $0) })
-
-        guard hasAuthoritativeSnapshot else {
-            hasAuthoritativeSnapshot = true
-            previousItemsByID = currentByID
-            return
-        }
-
-        defer { previousItemsByID = currentByID }
+        let candidate = deploymentOverlayTracker.consume(
+            currentItems,
+            excluding: Set(dismissedOverlayIDs)
+        )
 
         if let displayedID = deploymentOverlayModel.item?.id,
            let updatedItem = currentByID[displayedID] {
             let oldPhase = deploymentOverlayModel.item?.phase
             deploymentOverlayModel.item = updatedItem
             if oldPhase?.isActive == true, !updatedItem.phase.isActive {
-                scheduleOverlayDismiss(after: updatedItem.phase == .ready ? 6 : 10)
+                scheduleOverlayDismiss(after: updatedItem.phase == .ready ? 12 : 15)
             }
             return
         }
 
-        guard panelState == .closed else { return }
-        let candidate = currentItems
-            .filter { item in
-                guard !dismissedOverlayIDs.contains(item.id) else { return false }
-                guard item.phase.isActive || item.phase == .ready || item.phase.isFailure else { return false }
-                guard let previous = previousItemsByID[item.id] else { return true }
-                return previous.phase != item.phase && (item.phase.isActive || previous.phase.isActive)
-            }
-            .max { $0.triggeredAt < $1.triggeredAt }
-
-        guard let candidate else { return }
+        guard panelState == .closed, let candidate else { return }
         deploymentOverlayModel.item = candidate
         showDeploymentOverlay()
         if !candidate.phase.isActive {
-            scheduleOverlayDismiss(after: candidate.phase == .ready ? 6 : 10)
+            scheduleOverlayDismiss(after: candidate.phase == .ready ? 12 : 15)
         }
     }
 

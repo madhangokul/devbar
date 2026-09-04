@@ -12,7 +12,9 @@ final class DevBarRuntime: ObservableObject {
 
     init(providers: [any ToolbarProvider] = ProviderRegistry.all) {
         let store = ToolbarStore(providers: providers)
-        let notificationService = NotificationService()
+        let notificationService = NotificationService(
+            tracker: NotificationTransitionTracker(initialItems: store.items)
+        )
 
         self.store = store
         self.notificationService = notificationService

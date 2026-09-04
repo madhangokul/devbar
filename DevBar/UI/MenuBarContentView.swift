@@ -240,7 +240,10 @@ struct MenuBarContentView: View {
 
     private var visibleFailureCount: Int {
         let dismissed = Set(dismissedFailureIDs.split(separator: "\n").map(String.init))
-        return store.items.filter { $0.phase.isFailure && !dismissed.contains($0.id) }.count
+        let cutoff = Date().addingTimeInterval(-DeploymentAttention.monitoringWindow)
+        return store.items.filter {
+            $0.phase.isFailure && $0.triggeredAt >= cutoff && !dismissed.contains($0.id)
+        }.count
     }
 
     private var displayStatus: ItemStatus {

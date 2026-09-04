@@ -35,6 +35,15 @@ final class NotificationTransitionTrackerTests: XCTestCase {
         XCTAssertEqual(notifications.first?.kind, .failure)
     }
 
+    func testCachedBuildingDeploymentCompletingOnFirstLiveRefreshNotifies() {
+        let building = item(phase: .building)
+        var tracker = NotificationTransitionTracker(initialItems: [building])
+
+        let notifications = tracker.consume([item(phase: .ready)])
+
+        XCTAssertEqual(notifications.map(\.kind), [.success])
+    }
+
     func testServiceRequestsPermissionOnlyWhenEnabledAndHonorsKinds() async {
         let delivery = NotificationDeliverySpy()
         let service = NotificationService(delivery: delivery)
