@@ -68,7 +68,7 @@ struct ToolbarItem: Identifiable, Codable, Hashable, Sendable {
     var openURL: URL? { inspectorURL ?? siteURL }
 
     var completedBuildDuration: TimeInterval? {
-        guard let startedAt, let completedAt else { return nil }
+        guard !phase.isActive, let startedAt, let completedAt else { return nil }
         return max(0, completedAt.timeIntervalSince(startedAt))
     }
 

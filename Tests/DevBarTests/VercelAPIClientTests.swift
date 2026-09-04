@@ -25,6 +25,7 @@ final class VercelAPIClientTests: XCTestCase {
                   "inspectorUrl":"https://vercel.com/acme/devbar/dpl_1",
                   "created":1788500000000,
                   "buildingAt":1788500010000,
+                  "ready":1788500010000,
                   "readyState":"BUILDING",
                   "target":"production",
                   "meta":{"githubCommitRef":"main","numericValue":42}

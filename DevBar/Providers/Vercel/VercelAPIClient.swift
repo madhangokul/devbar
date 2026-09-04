@@ -35,7 +35,7 @@ struct VercelAPIClient: Sendable {
                 openURL: deployment.inspectorURL.flatMap(URL.init(string:)),
                 siteURL: deployedSiteURL(from: deployment.url),
                 startedAt: deployment.buildingAt.map(date(fromMilliseconds:)),
-                completedAt: deployment.ready.map(date(fromMilliseconds:))
+                completedAt: phase.isActive ? nil : deployment.ready.map(date(fromMilliseconds:))
             )
         }
         return BuildTimingEstimator.addingEstimates(to: items)
