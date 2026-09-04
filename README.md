@@ -87,7 +87,7 @@ Provider API --> ToolbarProvider --> RefreshCoordinator --> ToolbarStore --> Swi
                                       +--> SnapshotCache   +--> Notifications
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) and the [V1 release plan](docs/V1_RELEASE_PLAN.md).
+See [Architecture](docs/ARCHITECTURE.md), the [V1 release plan](docs/V1_RELEASE_PLAN.md), and the deferred [V2 webhook relay design](docs/V2_WEBHOOK_RELAY.md).
 
 ## Contributing and security
 

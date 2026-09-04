@@ -45,9 +45,9 @@ An optional provider-neutral outbound stream. It marks a provider dirty; it neve
 
 | State | Interval |
 | --- | --- |
-| Active deployment | 15 seconds |
-| Settled, direct mode | 30 seconds |
-| Webhook-assisted | On hint plus 10-minute reconciliation |
+| Active deployment | 5 seconds, with local HUD animation every second |
+| Settled, direct mode | 5 seconds |
+| V2 webhook-assisted | Immediate hint plus REST reconciliation |
 | Offline or rate-limited | Bounded exponential backoff with jitter |
 
 Launch, manual refresh, wake, and restored connectivity trigger immediate reconciliation.
@@ -61,8 +61,10 @@ Launch, manual refresh, wake, and restored connectivity trigger immediate reconc
 
 Core refresh, filter, notification, cache, and settings code must not require provider-specific branches.
 
-## Webhook boundary
+## V2 webhook boundary
 
 A menu-bar app cannot reliably receive public webhooks behind NAT or while asleep. Optional webhook-assisted mode therefore uses a small public relay and an outbound event stream.
 
 The relay validates Vercel's signature against the raw body, checks team and event type, deduplicates the event ID, and publishes a small dirty hint. It stores no Vercel token or deployment log. DevBar debounces hints and refreshes through the normal provider API.
+
+Webhook assistance is deferred from V1. See [V2 webhook-assisted updates](V2_WEBHOOK_RELAY.md) for the proposed event flow, security boundary, and delivery checklist.

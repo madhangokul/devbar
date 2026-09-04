@@ -27,8 +27,8 @@ DevBar gives a solo developer a quiet, glanceable view of Vercel projects, live 
 - REST reconciliation is always the source of truth.
 - Refresh on launch, popover open, wake, restored connectivity, and manual action.
 - Adaptive polling:
-  - 15 seconds while a deployment is active.
-  - 30 seconds while settled in direct mode, so a new deployment can surface promptly.
+  - Five-second authoritative reconciliation in direct mode.
+  - One-second local HUD animation between Vercel responses.
   - Exponential backoff with jitter for network failures and `Retry-After` for rate limits.
 - Last good snapshot cached in Application Support, capped at 200 items with a seven-day TTL.
 - Per-provider errors never remove another provider's data.
@@ -41,17 +41,18 @@ DevBar gives a solo developer a quiet, glanceable view of Vercel projects, live 
 - Transitions are deduplicated by deployment ID and state.
 - Production-created/promoted notifications are optional.
 
-### Optional webhook-assisted mode
+### Deferred to V2: webhook-assisted mode
 
 - Direct polling remains the default and works on every Vercel plan.
-- Pro/Enterprise users may self-host a small relay and configure its HTTPS event-stream URL.
+- No relay code, hosted service, or relay configuration ships in V1.
+- Pro/Enterprise users may eventually self-host a small relay and configure its HTTPS event-stream URL.
 - Vercel posts signed webhook events to the relay; the app connects outbound to it.
 - The relay validates the raw-body signature, expected team, event type, body size, and event ID.
 - It stores only a short-lived event cursor and publishes a minimal “provider changed” hint.
 - It never receives or stores the Vercel API token.
 - DevBar coalesces hints, fetches the authoritative REST state, then updates the UI.
 - A ten-minute reconciliation and adaptive polling remain as recovery paths.
-- Relay support may ship as experimental without delaying the direct-mode DMG.
+- See [V2 webhook-assisted updates](V2_WEBHOOK_RELAY.md) for the proposed design. Relay support must not delay the direct-mode DMG.
 
 ## Architecture
 
