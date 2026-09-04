@@ -28,29 +28,29 @@ final class RefreshPolicyTests: XCTestCase {
 
     func testRefreshRequestsAreCoalescedWhileOneIsInFlight() async {
         let recorder = RefreshRecorder()
-        let gate = RefreshGate()
+        let refreshGate = RefreshGate()
+        let pollingGate = RefreshGate()
         let coordinator = RefreshCoordinator(
             autoRefreshEnabled: true,
             refreshAction: { @MainActor in
                 let call = await recorder.recordCall()
-                if call == 1 { await gate.wait() }
+                if call == 1 { await refreshGate.wait() }
                 return RefreshResult(succeeded: true, items: [], retryAfter: nil)
             },
-            sleepAction: { _ in
-                try? await Task<Never, Never>.sleep(nanoseconds: .max)
-            },
+            sleepAction: { _ in await pollingGate.wait() },
             randomAction: { 0.5 }
         )
 
         let startTask = Task { await coordinator.start() }
         while await recorder.callCount == 0 { await Task.yield() }
         await coordinator.requestRefresh(.eventHint)
-        await gate.open()
+        await refreshGate.open()
         await startTask.value
+        await coordinator.stop()
 
         let callCount = await recorder.callCount
         XCTAssertEqual(callCount, 2)
-        await coordinator.stop()
+        await pollingGate.open()
     }
 
     private func delay(
