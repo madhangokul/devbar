@@ -55,6 +55,7 @@ struct MenuBarContentView: View {
     let requestRefresh: () -> Void
 
     @State private var selection: DevBarSection = .overview
+    @AppStorage(DeploymentAttention.dismissedKey) private var dismissedFailureIDs = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,9 +90,9 @@ struct MenuBarContentView: View {
                 HStack(spacing: 6) {
                     Text("DevBar")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
-                    Image(systemName: DevBarTheme.symbol(for: store.aggregateStatus))
+                    Image(systemName: DevBarTheme.symbol(for: displayStatus))
                         .font(.caption)
-                        .foregroundStyle(DevBarTheme.color(for: store.aggregateStatus))
+                        .foregroundStyle(DevBarTheme.color(for: displayStatus))
                         .accessibilityHidden(true)
                 }
                 Text(statusSummary)
@@ -99,7 +100,7 @@ struct MenuBarContentView: View {
                     .foregroundStyle(DevBarTheme.secondaryText)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("DevBar, \(store.aggregateStatus.label). \(statusSummary)")
+            .accessibilityLabel("DevBar, \(displayStatus.label). \(statusSummary)")
 
             Spacer()
 
@@ -185,7 +186,7 @@ struct MenuBarContentView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(store.isRefreshing ? DevBarTheme.active : DevBarTheme.color(for: store.aggregateStatus))
+                .fill(store.isRefreshing ? DevBarTheme.active : DevBarTheme.color(for: displayStatus))
                 .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
             if let lastUpdated = store.lastUpdated {
@@ -219,11 +220,11 @@ struct MenuBarContentView: View {
     }
 
     private var statusSummary: String {
-        switch store.aggregateStatus {
+        switch displayStatus {
         case .good: return "All tracked deployments are healthy"
         case .warning: return "\(activeCount) deployment\(activeCount == 1 ? "" : "s") active"
         case .error:
-            let failures = store.items.filter { $0.phase.isFailure }.count
+            let failures = visibleFailureCount
             if failures > 0 {
                 return "\(failures) deployment\(failures == 1 ? "" : "s") failed"
             } else {
@@ -235,6 +236,17 @@ struct MenuBarContentView: View {
 
     private var activeCount: Int {
         store.items.filter { $0.phase.isActive }.count
+    }
+
+    private var visibleFailureCount: Int {
+        let dismissed = Set(dismissedFailureIDs.split(separator: "\n").map(String.init))
+        return store.items.filter { $0.phase.isFailure && !dismissed.contains($0.id) }.count
+    }
+
+    private var displayStatus: ItemStatus {
+        if !store.providerErrors.isEmpty || visibleFailureCount > 0 { return .error }
+        if activeCount > 0 { return .warning }
+        return store.items.isEmpty ? .neutral : .good
     }
 }
 

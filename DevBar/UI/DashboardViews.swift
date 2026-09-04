@@ -4,7 +4,7 @@ import SwiftUI
 struct OverviewView: View {
     @ObservedObject var store: ToolbarStore
 
-    @AppStorage("dismissedFailureDeploymentIDs") private var dismissedFailureIDs = ""
+    @AppStorage(DeploymentAttention.dismissedKey) private var dismissedFailureIDs = ""
 
     private let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -15,7 +15,7 @@ struct OverviewView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 HealthSummaryCard(
-                    status: store.aggregateStatus,
+                    status: displayStatus,
                     projectCount: projectNames.count,
                     activeCount: activeItems.count,
                     failureCount: failedItems.count
@@ -63,7 +63,7 @@ struct OverviewView: View {
                     )
                 }
 
-                DevBarSectionHeader(title: "Live deployments", detail: "Newest first")
+                DevBarSectionHeader(title: "Deployments by project", detail: "Newest first")
 
                 if store.visibleItems.isEmpty {
                     InlineEmptyState(
@@ -72,8 +72,12 @@ struct OverviewView: View {
                         message: "Refresh DevBar or adjust your project filter."
                     )
                 } else {
-                    ForEach(store.visibleItems.prefix(6)) { item in
-                        ItemRow(item: item, compact: true)
+                    ForEach(deploymentGroups.prefix(5)) { group in
+                        if group.items.count == 1, let item = group.items.first {
+                            ItemRow(item: item, compact: true)
+                        } else {
+                            OverviewDeploymentGroup(group: group)
+                        }
                     }
                 }
             }
@@ -93,12 +97,37 @@ struct OverviewView: View {
     }
 
     private var failedItems: [ToolbarItem] {
-        store.visibleItems.filter { $0.phase.isFailure }
+        store.visibleItems.filter { item in
+            item.phase.isFailure && !dismissedIDSet.contains(item.id)
+        }
     }
 
     private var visibleFailedItems: [ToolbarItem] {
-        let dismissed = Set(dismissedFailureIDs.split(separator: "\n").map(String.init))
-        return failedItems.filter { !dismissed.contains($0.id) }
+        failedItems
+    }
+
+    private var dismissedIDSet: Set<String> {
+        Set(dismissedFailureIDs.split(separator: "\n").map(String.init))
+    }
+
+    private var displayStatus: ItemStatus {
+        if !store.providerErrors.isEmpty || !failedItems.isEmpty { return .error }
+        if !activeItems.isEmpty { return .warning }
+        return store.visibleItems.isEmpty ? .neutral : .good
+    }
+
+    private var deploymentGroups: [OverviewDeploymentGroupModel] {
+        Dictionary(grouping: store.visibleItems, by: \.groupName)
+            .map { name, items in
+                OverviewDeploymentGroupModel(
+                    name: name,
+                    items: items.sorted { $0.triggeredAt > $1.triggeredAt }
+                )
+            }
+            .sorted {
+                ($0.items.first?.triggeredAt ?? .distantPast) >
+                    ($1.items.first?.triggeredAt ?? .distantPast)
+            }
     }
 
     private var errorProviders: [any ToolbarProvider] {
@@ -123,6 +152,62 @@ struct OverviewView: View {
         if normalized != dismissedFailureIDs {
             dismissedFailureIDs = normalized
         }
+    }
+}
+
+private struct OverviewDeploymentGroupModel: Identifiable {
+    let name: String
+    let items: [ToolbarItem]
+
+    var id: String { name }
+}
+
+private struct OverviewDeploymentGroup: View {
+    let group: OverviewDeploymentGroupModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DevBarTheme.accent)
+                Text(group.name)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DevBarTheme.primaryText)
+                Spacer()
+                if activeCount > 0 {
+                    Text("\(activeCount) in progress")
+                        .foregroundStyle(DevBarTheme.active)
+                } else {
+                    Text("\(group.items.count) recent")
+                        .foregroundStyle(DevBarTheme.tertiaryText)
+                }
+            }
+            .font(.caption2)
+            .padding(.horizontal, 11)
+            .frame(height: 31)
+
+            Divider().overlay(DevBarTheme.border)
+
+            ForEach(Array(group.items.prefix(3).enumerated()), id: \.element.id) { index, item in
+                ItemRow(item: item, compact: true)
+                if index < min(3, group.items.count) - 1 {
+                    Divider()
+                        .overlay(DevBarTheme.border)
+                        .padding(.leading, 30)
+                }
+            }
+        }
+        .background(DevBarTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(DevBarTheme.border, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var activeCount: Int {
+        group.items.filter { $0.phase.isActive }.count
     }
 }
 

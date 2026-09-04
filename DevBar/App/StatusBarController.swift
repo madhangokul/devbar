@@ -5,6 +5,13 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
+    private enum PanelState {
+        case closed
+        case opening
+        case open
+        case closing
+    }
+
     private let runtime: DevBarRuntime
     private let statusItem: NSStatusItem
     private let panel: DevBarPanel
@@ -15,11 +22,15 @@ final class StatusBarController: NSObject {
     private var localClickMonitor: Any?
     private var wakeObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
-    private var isPanelVisible = false
+    private var panelState: PanelState = .closed
+    private var panelTransitionID = 0
     private var hasAuthoritativeSnapshot = false
     private var previousItemsByID: [String: ToolbarItem] = [:]
     private var dismissedOverlayIDs: [String] = []
     private var overlayDismissTask: Task<Void, Never>?
+    private var observedAutoRefreshEnabled = UserDefaults.standard.object(
+        forKey: RefreshCoordinator.autoRefreshEnabledKey
+    ) as? Bool ?? true
 
     init(runtime: DevBarRuntime, openSettings: @escaping () -> Void) {
         self.runtime = runtime
@@ -58,7 +69,10 @@ final class StatusBarController: NSObject {
 
     @objc private func togglePanel() {
         hideDeploymentOverlay(animated: false)
-        isPanelVisible ? hidePanel() : showPanel()
+        switch panelState {
+        case .closed, .closing: showPanel()
+        case .opening, .open: hidePanel()
+        }
     }
 
     private func configureStatusItem() {
@@ -150,12 +164,17 @@ final class StatusBarController: NSObject {
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: .main
-        ) { [weak runtime] _ in
-            guard let runtime else { return }
-            let enabled = UserDefaults.standard.object(
-                forKey: RefreshCoordinator.autoRefreshEnabledKey
-            ) as? Bool ?? true
-            Task { await runtime.coordinator.setAutoRefreshEnabled(enabled) }
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.updateStatusItem()
+                let enabled = UserDefaults.standard.object(
+                    forKey: RefreshCoordinator.autoRefreshEnabledKey
+                ) as? Bool ?? true
+                guard enabled != self.observedAutoRefreshEnabled else { return }
+                self.observedAutoRefreshEnabled = enabled
+                await self.runtime.coordinator.setAutoRefreshEnabled(enabled)
+            }
         }
     }
 
@@ -164,14 +183,25 @@ final class StatusBarController: NSObject {
         let image = NSImage(systemSymbolName: "shippingbox.fill", accessibilityDescription: "DevBar")
         image?.isTemplate = true
         button.image = image
-        button.title = runtime.store.issueCount > 0 ? " \(runtime.store.issueCount)" : ""
-        button.toolTip = "DevBar — \(runtime.store.aggregateStatus.label)"
+        let attentionCount = DeploymentAttention.attentionCount(
+            items: runtime.store.items,
+            providerErrors: runtime.store.providerErrors
+        )
+        let displayStatus = DeploymentAttention.displayStatus(
+            items: runtime.store.items,
+            providerErrors: runtime.store.providerErrors
+        )
+        button.title = attentionCount > 0 ? " \(attentionCount)" : ""
+        button.toolTip = "DevBar — \(displayStatus.label)"
         button.contentTintColor = statusColor
-        button.setAccessibilityLabel("DevBar, \(runtime.store.aggregateStatus.label)")
+        button.setAccessibilityLabel("DevBar, \(displayStatus.label)")
     }
 
     private var statusColor: NSColor {
-        switch runtime.store.aggregateStatus {
+        switch DeploymentAttention.displayStatus(
+            items: runtime.store.items,
+            providerErrors: runtime.store.providerErrors
+        ) {
         case .good: .systemGreen
         case .warning: .systemOrange
         case .error: .systemRed
@@ -195,9 +225,14 @@ final class StatusBarController: NSObject {
         let finalY = buttonFrame.minY - panelSize.height - 7
         let finalFrame = NSRect(origin: NSPoint(x: finalX, y: finalY), size: panelSize)
 
-        isPanelVisible = true
-        panel.alphaValue = 0
-        panel.setFrame(finalFrame.offsetBy(dx: 0, dy: 6), display: false)
+        panelTransitionID += 1
+        let transitionID = panelTransitionID
+        let wasClosed = panelState == .closed
+        panelState = .opening
+        if wasClosed {
+            panel.alphaValue = 0
+            panel.setFrame(finalFrame.offsetBy(dx: 0, dy: 6), display: false)
+        }
         panel.makeKeyAndOrderFront(nil)
         installClickMonitors()
         Task { await runtime.coordinator.setPopoverOpen(true) }
@@ -207,6 +242,11 @@ final class StatusBarController: NSObject {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(finalFrame, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.panelTransitionID == transitionID else { return }
+                self.panelState = .open
+            }
         }
     }
 
@@ -232,7 +272,7 @@ final class StatusBarController: NSObject {
             return
         }
 
-        guard !isPanelVisible else { return }
+        guard panelState == .closed else { return }
         let candidate = currentItems
             .filter { item in
                 guard !dismissedOverlayIDs.contains(item.id) else { return false }
@@ -326,14 +366,17 @@ final class StatusBarController: NSObject {
     }
 
     private func hidePanel(animated: Bool = true) {
-        guard isPanelVisible else { return }
-        isPanelVisible = false
+        guard panelState != .closed else { return }
+        panelTransitionID += 1
+        let transitionID = panelTransitionID
+        panelState = .closing
         removeClickMonitors()
         Task { await runtime.coordinator.setPopoverOpen(false) }
 
         guard animated else {
             panel.orderOut(nil)
             panel.alphaValue = 1
+            panelState = .closed
             return
         }
 
@@ -343,9 +386,13 @@ final class StatusBarController: NSObject {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
             panel.animator().setFrame(hiddenFrame, display: true)
-        } completionHandler: { [weak panel] in
-            panel?.orderOut(nil)
-            panel?.alphaValue = 1
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.panelTransitionID == transitionID else { return }
+                self.panel.orderOut(nil)
+                self.panel.alphaValue = 1
+                self.panelState = .closed
+            }
         }
     }
 
