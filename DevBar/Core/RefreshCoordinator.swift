@@ -36,7 +36,7 @@ struct RefreshPolicy: Sendable {
     let jitterFraction: Double
 
     init(
-        activeInterval: TimeInterval = 2,
+        activeInterval: TimeInterval = 5,
         openSettledInterval: TimeInterval = 5,
         closedSettledInterval: TimeInterval = 5,
         initialFailureDelay: TimeInterval = 15,

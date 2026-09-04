@@ -5,7 +5,7 @@ final class RefreshPolicyTests: XCTestCase {
     func testAdaptiveIntervals() {
         let policy = RefreshPolicy()
 
-        XCTAssertEqual(delay(policy, active: true, open: false), 2)
+        XCTAssertEqual(delay(policy, active: true, open: false), 5)
         XCTAssertEqual(delay(policy, active: false, open: true), 5)
         XCTAssertEqual(delay(policy, active: false, open: false), 5)
     }
