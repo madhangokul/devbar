@@ -33,6 +33,7 @@ final class StatusBarController: NSObject {
     private var deploymentOverlayTracker: DeploymentOverlayTracker
     private var dismissedOverlayIDs: [String] = []
     private var overlayDismissTask: Task<Void, Never>?
+    private var overlayClockCancellable: AnyCancellable?
     private var observedAutoRefreshEnabled = UserDefaults.standard.object(
         forKey: RefreshCoordinator.autoRefreshEnabledKey
     ) as? Bool ?? true
@@ -64,6 +65,7 @@ final class StatusBarController: NSObject {
     func stop() {
         removeClickMonitors()
         overlayDismissTask?.cancel()
+        overlayClockCancellable?.cancel()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
@@ -280,6 +282,7 @@ final class StatusBarController: NSObject {
             return
         }
         deploymentOverlayModel.item = candidate
+        deploymentOverlayModel.now = Date()
         overlayLogger.info("Showing deployment HUD for phase \(candidate.phase.rawValue, privacy: .public)")
         showDeploymentOverlay()
         if !candidate.phase.isActive {
@@ -297,6 +300,7 @@ final class StatusBarController: NSObject {
         }
 
         overlayDismissTask?.cancel()
+        startOverlayClock()
         let buttonFrame = buttonWindow.convertToScreen(button.frame)
         let size = deploymentOverlayPanel.frame.size
         let inset: CGFloat = 8
@@ -338,8 +342,20 @@ final class StatusBarController: NSObject {
         }
     }
 
+    private func startOverlayClock() {
+        overlayClockCancellable?.cancel()
+        deploymentOverlayModel.now = Date()
+        overlayClockCancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak model = deploymentOverlayModel] date in
+                model?.now = date
+            }
+    }
+
     private func hideDeploymentOverlay(animated: Bool = true) {
         overlayDismissTask?.cancel()
+        overlayClockCancellable?.cancel()
+        overlayClockCancellable = nil
         guard deploymentOverlayPanel.isVisible else { return }
         guard animated else {
             deploymentOverlayPanel.orderOut(nil)
@@ -429,6 +445,7 @@ final class StatusBarController: NSObject {
 @MainActor
 private final class DeploymentOverlayModel: ObservableObject {
     @Published var item: ToolbarItem?
+    @Published var now = Date()
 }
 
 private struct DeploymentOverlayHost: View {
@@ -438,19 +455,17 @@ private struct DeploymentOverlayHost: View {
 
     var body: some View {
         if let item = model.item {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let elapsed = elapsedDuration(for: item, at: context.date)
-                let estimate = item.estimatedBuildDuration ?? 0
-                DeploymentProgressOverlay(
-                    item: item,
-                    estimatedProgress: progress(for: item, elapsed: elapsed, estimate: estimate),
-                    elapsedDuration: elapsed,
-                    estimatedDuration: estimate,
-                    siteURL: item.siteURL,
-                    onDismiss: onDismiss,
-                    onOpenSite: item.siteURL.map { url in { onOpenSite(url) } }
-                )
-            }
+            let elapsed = elapsedDuration(for: item, at: model.now)
+            let estimate = item.estimatedBuildDuration ?? 0
+            DeploymentProgressOverlay(
+                item: item,
+                estimatedProgress: progress(for: item, elapsed: elapsed, estimate: estimate),
+                elapsedDuration: elapsed,
+                estimatedDuration: estimate,
+                siteURL: item.siteURL,
+                onDismiss: onDismiss,
+                onOpenSite: item.siteURL.map { url in { onOpenSite(url) } }
+            )
         }
     }
 

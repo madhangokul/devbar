@@ -258,6 +258,7 @@ struct DeploymentProgressOverlay: View {
                     style: StrokeStyle(lineWidth: 5, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
+                .animation(reduceMotion ? nil : .linear(duration: 0.35), value: clampedProgress)
 
             Text("\(Int((clampedProgress * 100).rounded()))%")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
